@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, useSession } from "./api";
 import { CuisineTab, PlacesTab, VoteTab, WhenTab } from "./tabs";
-import { Countdown, toast } from "./ui";
+import { Countdown, nameColors, sessionEmoji, toast } from "./ui";
 import type { AppConfig } from "./types";
 
 const TABS = [
@@ -45,7 +45,7 @@ export default function App() {
 
   const share = async () => {
     if (!state) return;
-    const text = `🍜 Help decide where we eat! Join "${state.name}": ${location.href}`;
+    const text = `${sessionEmoji(state)} Help decide where we eat! Join "${state.name}": ${location.href}`;
     if (navigator.share) { try { await navigator.share({ text }); return; } catch { /* cancelled */ } }
     await navigator.clipboard.writeText(text);
     toast("Invite copied — paste it into WhatsApp or iMessage");
@@ -65,17 +65,17 @@ export default function App() {
   );
 
   /* ---- join gate ---- */
-  if (!me) return <JoinGate name={state.name} memberCount={state.members.length} onJoin={join} />;
+  if (!me) return <JoinGate name={state.name} emoji={sessionEmoji(state)} memberCount={state.members.length} onJoin={join} />;
 
   /* ---- main ---- */
   return (
     <>
       <div className="topbar">
         <div>
-          <h1>🍜 {state.name}</h1>
+          <h1>{sessionEmoji(state)} {state.name}</h1>
           <div className="avatars">
             {state.members.map(m => (
-              <span className="avatar" key={m} title={m}>{m.slice(0, 2).toUpperCase()}</span>
+              <span className="avatar" key={m} title={m} style={nameColors(m)}>{m.slice(0, 2).toUpperCase()}</span>
             ))}
           </div>
           {state.decideBy && <Countdown iso={state.decideBy} />}
@@ -131,12 +131,12 @@ function Landing({ onCreate }: { onCreate: (name: string) => void }) {
   );
 }
 
-function JoinGate({ name, memberCount, onJoin }: { name: string; memberCount: number; onJoin: (n: string) => void }) {
+function JoinGate({ name, emoji, memberCount, onJoin }: { name: string; emoji: string; memberCount: number; onJoin: (n: string) => void }) {
   const [nick, setNick] = useState("");
   return (
     <>
       <div className="hero">
-        <div className="logo">🍜</div>
+        <div className="logo">{emoji}</div>
         <h1>{name}</h1>
         <p className="sub">{memberCount > 0 ? `${memberCount} deciding where to eat` : "Be the first to join"}</p>
       </div>

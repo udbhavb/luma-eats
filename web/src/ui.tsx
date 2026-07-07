@@ -1,4 +1,32 @@
 import { useEffect, useState } from "react";
+import type { SessionState } from "./types";
+
+/* ---- session emoji ----
+ * Default: a food emoji picked deterministically from the session id (stable
+ * for everyone, no flicker). Once cuisines have votes, the top-voted
+ * cuisine's emoji takes over — the header reflects where the group is heading. */
+const FOOD_EMOJIS = ["🍜", "🍕", "🌮", "🍣", "🍛", "🥡", "🍔", "🍲", "🥙", "🍝", "🍱", "🥗", "🍖", "🥞", "🥟", "🍤"];
+
+const hash = (s: string) => {
+  let h = 0;
+  for (const ch of s) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return h;
+};
+
+export function sessionEmoji(s: SessionState): string {
+  const top = s.cuisines
+    .filter(c => c.votes.length > 0)
+    .sort((a, b) => b.votes.length - a.votes.length)[0];
+  if (top) return top.emoji;
+  return FOOD_EMOJIS[hash(s.id) % FOOD_EMOJIS.length];
+}
+
+/* ---- per-user avatar colors ----
+ * Nickname → hue, so every client renders the same color for the same person. */
+export function nameColors(name: string) {
+  const h = hash(name.toLowerCase()) % 360;
+  return { background: `hsl(${h}, 70%, 86%)`, color: `hsl(${h}, 65%, 30%)` };
+}
 
 /* ---- toast ---- */
 let toastTimer: ReturnType<typeof setTimeout>;
