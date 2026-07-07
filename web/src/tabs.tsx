@@ -53,9 +53,12 @@ export function WhenTab({ s, me }: TabProps) {
         <summary className="sub" style={{ cursor: "pointer" }}>
           ⏳ {s.decideBy ? "Change decision deadline" : "Set a decision deadline (optional)"}
         </summary>
+        <p className="sub" style={{ marginTop: 8 }}>
+          When the deadline hits, the top-voted time and place lock in automatically — no more dithering.
+        </p>
         <div className="row" style={{ marginTop: 8 }}>
           <input type="datetime-local" value={deadline} onChange={e => setDeadline(e.target.value)} />
-          <button className="sec" onClick={() => { if (deadline) run(api.setDeadline(s.id, deadline)); }}>Set</button>
+          <button className="sec" onClick={() => { if (deadline) run(api.setDeadline(s.id, new Date(deadline).toISOString())); }}>Set</button>
           {s.decideBy && <button className="ghost" onClick={() => run(api.setDeadline(s.id, null))}>Clear</button>}
         </div>
       </details>

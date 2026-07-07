@@ -43,7 +43,7 @@ export function Countdown({ iso }: { iso: string }) {
   const txt = h > 0 ? `${h}h ${m}m` : `${m}m ${s}s`;
   return (
     <span className={`countdown ${late ? "late" : ""}`}>
-      ⏳ {late ? `decision overdue by ${txt}` : `${txt} left to decide`}
+      ⏳ {late ? "time's up — top votes locked in" : `${txt} until top votes lock in`}
     </span>
   );
 }

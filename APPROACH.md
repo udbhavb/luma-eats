@@ -25,10 +25,11 @@ Dev mode: `npm install && npm run dev` (server :8787, Vite :5173 with proxy).
 
 ## What I built and why
 
-The core insight: group food decisions stall not because people lack options, but because **nobody wants to be the decider**. So the product is structured as a funnel that shrinks the decision at each step, with two pressure-release valves:
+The core insight: group food decisions stall not because people lack options, but because **nobody wants to be the decider**. So the product is structured as a funnel that shrinks the decision at each step, with three pressure-release valves:
 
 1. **Anyone can "Pick"** — locking a choice isn't gated on an organizer role. Social pressure keeps this honest in a lunch group of 5–10; a permissions system would add friction without value at this scale.
 2. **The Claude concierge** — when the final vote ties or fragments, Claude reads the whole session (who voted for what, ratings, cuisine preferences) and makes one decisive recommendation with reasoning that names who gets what they wanted. A tie-break you can blame on the robot is a tie-break people accept.
+3. **The decision deadline** — optional countdown; when it expires the server auto-locks the top-voted time and place (ties break deterministically: earliest suggestion for times, higher rating for places, never a zero-vote option). The sweep runs server-side every 10s, so the decision lands even if nobody has the tab open.
 
 The "best reviewed nearby" step is driven by the cuisine board: top-voted cuisines become the search query, so the group's earlier votes do work instead of being decoration. Results are ranked with a Bayesian-shrunk rating (toward 4.0, prior weight 20) so a 5.0 with 3 reviews doesn't beat a 4.6 with 2,000.
 

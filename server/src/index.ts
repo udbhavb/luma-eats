@@ -176,6 +176,51 @@ app.post("/api/sessions/:id/concierge", asyncH(async (req, res) => {
   res.json(await recommend(state));
 }));
 
+/* ---------------- deadline auto-finalize ----------------
+ * When a session's decide-by deadline passes, the highest-voted time and
+ * place lock in automatically. Runs server-side on a sweep so the decision
+ * happens even if nobody has the page open. Ties: times fall back to the
+ * earliest suggestion, places to the higher rating — deterministic, so every
+ * client agrees.
+ */
+
+function pickLeader(opts: { id: string; votes: string[] }[], tiebreak?: (a: any, b: any) => number) {
+  const max = Math.max(0, ...opts.map(o => o.votes.length));
+  if (max === 0) return null; // never auto-pick something nobody voted for
+  const leaders = opts.filter(o => o.votes.length === max);
+  if (tiebreak) leaders.sort(tiebreak);
+  return leaders[0].id;
+}
+
+function autoFinalizeSweep() {
+  const rows = db.prepare(
+    `SELECT id, decide_by FROM sessions
+     WHERE decide_by IS NOT NULL AND (time_final IS NULL OR place_final IS NULL)`
+  ).all() as { id: string; decide_by: string }[];
+
+  for (const r of rows) {
+    const due = Date.parse(r.decide_by);
+    if (isNaN(due) || due > Date.now()) continue;
+    const state = getState(r.id);
+    if (!state) continue;
+    let changed = false;
+    if (!state.timeFinal) {
+      const w = pickLeader(state.timeOptions);
+      if (w) { db.prepare(`UPDATE sessions SET time_final = ? WHERE id = ?`).run(w, r.id); changed = true; }
+    }
+    if (!state.placeFinal) {
+      const w = pickLeader(state.places, (a, b) => (b.rating ?? 0) - (a.rating ?? 0));
+      if (w) { db.prepare(`UPDATE sessions SET place_final = ? WHERE id = ?`).run(w, r.id); changed = true; }
+    }
+    if (changed) {
+      console.log(`⏰ deadline hit for session ${r.id} — auto-locked leaders`);
+      broadcast(r.id);
+    }
+  }
+}
+setInterval(autoFinalizeSweep, 10_000);
+autoFinalizeSweep(); // catch anything that expired while the server was down
+
 /* ---------------- static frontend ---------------- */
 
 const dist = path.resolve(__dirname, "../../web/dist");
