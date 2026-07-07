@@ -161,7 +161,9 @@ async function osmSearch(loc: Geo, cuisines: string[]): Promise<Candidate[]> {
     .filter(Boolean).join("|");
   const filter = frag ? `["cuisine"~"${frag}",i]` : "";
   const around = `(around:2500,${loc.lat.toFixed(3)},${loc.lng.toFixed(3)})`;
-  const q = `[out:json][timeout:25];(
+  // [timeout:8] caps work server-side; the AbortSignal caps the wall clock —
+  // a 504-ing mirror must fail fast so the next one gets its turn
+  const q = `[out:json][timeout:8];(
     node["amenity"~"restaurant|fast_food"]${filter}${around};
     way["amenity"~"restaurant|fast_food"]${filter}${around};
   );out center tags 60;`;
@@ -171,9 +173,15 @@ async function osmSearch(loc: Geo, cuisines: string[]): Promise<Candidate[]> {
   if (hit && Date.now() - hit.at < OSM_CACHE_TTL) return parseOsm(hit.data);
 
   let data: any = null;
-  for (const url of OVERPASS_URLS) {
+  // random order spreads load across mirrors instead of dogpiling the first
+  const mirrors = [...OVERPASS_URLS].sort(() => Math.random() - 0.5);
+  for (const url of mirrors) {
     try {
-      const r = await fetch(url, { method: "POST", headers: OSM_HEADERS, body: "data=" + encodeURIComponent(q) });
+      const r = await fetch(url, {
+        method: "POST", headers: OSM_HEADERS,
+        body: "data=" + encodeURIComponent(q),
+        signal: AbortSignal.timeout(10_000)
+      });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       data = await r.json();
       break;
