@@ -178,6 +178,17 @@ app.post("/api/sessions/:id/finalize", asyncH(async (req, res) => {
   res.json({ ok: true });
 }));
 
+app.post("/api/sessions/:id/messages", asyncH(async (req, res) => {
+  requireSession(req);
+  const author = clean(req.body.by, 24);
+  const text = String(req.body.text ?? "").trim().slice(0, 280); // tweet-sized: enough for a case, too short for a manifesto
+  if (!author || !text) throw new Error("Message required");
+  db.prepare(`INSERT INTO messages (id, session_id, author, text, created_at) VALUES (?, ?, ?, ?, ?)`)
+    .run(newId(), req.params.id, author, text, Date.now());
+  broadcast(req.params.id);
+  res.json({ ok: true });
+}));
+
 app.post("/api/sessions/:id/deadline", asyncH(async (req, res) => {
   requireSession(req);
   const iso = req.body.iso;

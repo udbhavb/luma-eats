@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import confetti from "canvas-confetti";
 import { api } from "./api";
 import { MapView } from "./MapView";
-import { PollRow, Stars, fmtTime, price, toast } from "./ui";
+import { PollRow, Stars, fmtTime, nameColors, price, toast } from "./ui";
 import type { AppConfig, Candidate, Recommendation, SessionState } from "./types";
 
 interface TabProps { s: SessionState; me: string; }
@@ -254,6 +254,73 @@ export function PlacesTab({ s, me, config }: TabProps & { config: AppConfig }) {
         <p className="sub" style={{ marginTop: 10 }}>
           Place data © OpenStreetMap contributors. Ratings need a Google key (see README) — until then, tap “check reviews”.
         </p>
+      )}
+    </div>
+  );
+}
+
+/* ================= CHAT ================= */
+
+const MSG_MAX = 280;
+
+export function ChatTab({ s, me }: TabProps) {
+  const [text, setText] = useState("");
+  const endRef = useRef<HTMLDivElement>(null);
+
+  // stick to the newest message when one arrives
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [s.messages.length]);
+
+  const send = () => {
+    const t = text.trim();
+    if (!t) return;
+    run(api.postMessage(s.id, t, me));
+    setText("");
+  };
+
+  const fmtAt = (at: number) => {
+    const d = new Date(at);
+    const today = new Date().toDateString() === d.toDateString();
+    return today
+      ? d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+      : d.toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" });
+  };
+
+  return (
+    <div className="card">
+      <h2>💬 Discussion</h2>
+      <p className="sub">Make your case — “their tacos slap”, “I can't do Thursday”…</p>
+
+      <div className="chat-list">
+        {s.messages.length === 0 && <p className="sub" style={{ textAlign: "center" }}>No messages yet — start the debate.</p>}
+        {s.messages.map(m => (
+          <div key={m.id} className={`msg ${m.author === me ? "mine" : ""}`}>
+            <span className="avatar" title={m.author} style={nameColors(m.author)}>
+              {m.author.slice(0, 2).toUpperCase()}
+            </span>
+            <div className="msg-body">
+              <div className="msg-head">
+                <b>{m.author === me ? "you" : m.author}</b>
+                <span>{fmtAt(m.at)}</span>
+              </div>
+              <div className="msg-text">{m.text}</div>
+            </div>
+          </div>
+        ))}
+        <div ref={endRef} />
+      </div>
+
+      <div className="row" style={{ marginTop: 10, alignItems: "flex-end" }}>
+        <input
+          placeholder="Say something…"
+          value={text}
+          maxLength={MSG_MAX}
+          onChange={e => setText(e.target.value)}
+          onKeyDown={e => e.key === "Enter" && send()}
+        />
+        <button onClick={send} disabled={!text.trim()}>Send</button>
+      </div>
+      {text.length > MSG_MAX - 60 && (
+        <p className="sub" style={{ textAlign: "right", margin: "4px 0 0" }}>{MSG_MAX - text.length} left</p>
       )}
     </div>
   );

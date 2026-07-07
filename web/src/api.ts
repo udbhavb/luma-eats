@@ -29,6 +29,7 @@ export const api = {
   finalize: (id: string, kind: "time" | "place", optionId: string | null) =>
     req(`/api/sessions/${id}/finalize`, { kind, optionId }),
   setDeadline: (id: string, iso: string | null) => req(`/api/sessions/${id}/deadline`, { iso }),
+  postMessage: (id: string, text: string, by: string) => req(`/api/sessions/${id}/messages`, { text, by }),
   concierge: (id: string) => req<import("./types").Recommendation>(`/api/sessions/${id}/concierge`, {})
 };
 

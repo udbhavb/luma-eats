@@ -50,6 +50,13 @@ CREATE TABLE IF NOT EXISTS places (
   source TEXT NOT NULL,          -- 'google' | 'osm' | 'manual'
   by TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS messages (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  author TEXT NOT NULL,
+  text TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS votes (
   session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
   kind TEXT NOT NULL,            -- 'time' | 'cuisine' | 'place'
@@ -100,7 +107,14 @@ export function getState(sessionId: string) {
         lat: p.lat, lng: p.lng, rating: p.rating, ratingCount: p.rating_count,
         priceLevel: p.price_level, mapsUrl: p.maps_url, source: p.source, by: p.by,
         votes: pv[p.id] ?? []
-      }))
+      })),
+    // last 200 messages, oldest first — keeps the broadcast payload bounded
+    messages: (db.prepare(
+      `SELECT id, author, text, created_at FROM messages
+       WHERE session_id = ? ORDER BY created_at DESC, id DESC LIMIT 200`
+    ).all(sessionId) as any[])
+      .reverse()
+      .map(m => ({ id: m.id, author: m.author, text: m.text, at: m.created_at }))
   };
 }
 

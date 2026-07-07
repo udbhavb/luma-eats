@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, useSession } from "./api";
-import { CuisineTab, PlacesTab, VoteTab, WhenTab } from "./tabs";
+import { ChatTab, CuisineTab, PlacesTab, VoteTab, WhenTab } from "./tabs";
 import { Countdown, nameColors, sessionEmoji, toast } from "./ui";
 import type { AppConfig } from "./types";
 
@@ -8,7 +8,8 @@ const TABS = [
   ["when", "🕐", "When"],
   ["cuisine", "🍜", "Cuisine"],
   ["places", "📍", "Places"],
-  ["vote", "🗳️", "Vote"]
+  ["vote", "🗳️", "Vote"],
+  ["chat", "💬", "Chat"]
 ] as const;
 type TabId = (typeof TABS)[number][0];
 
@@ -87,6 +88,7 @@ export default function App() {
       {tab === "cuisine" && <CuisineTab s={state} me={me} />}
       {tab === "places" && <PlacesTab s={state} me={me} config={config} />}
       {tab === "vote" && <VoteTab s={state} me={me} config={config} />}
+      {tab === "chat" && <ChatTab s={state} me={me} />}
 
       <footer>Luma Eat · you're {me} · {state.members.length} deciding</footer>
 
@@ -96,6 +98,7 @@ export default function App() {
             <span className="ico">{ico}</span>
             {label}
             {id === "vote" && state.places.length > 0 && <span className="pill">{state.places.length}</span>}
+            {id === "chat" && state.messages.length > 0 && <span className="pill">{state.messages.length}</span>}
           </button>
         ))}
       </nav>

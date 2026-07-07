@@ -6,6 +6,7 @@ export interface Place {
   rating: number | null; ratingCount: number | null; priceLevel: number | null;
   mapsUrl: string; source: string; by: string; votes: string[];
 }
+export interface Message { id: string; author: string; text: string; at: number; }
 export interface SessionState {
   id: string; name: string; createdAt: number;
   decideBy: string | null;
@@ -15,6 +16,7 @@ export interface SessionState {
   timeOptions: TimeOption[];
   cuisines: Cuisine[];
   places: Place[];
+  messages: Message[];
 }
 export interface Candidate {
   name: string; cuisine: string; address: string;
