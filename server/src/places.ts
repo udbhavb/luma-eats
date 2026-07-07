@@ -135,34 +135,57 @@ const OSM_CUISINE: Record<string, string> = {
 
 const OVERPASS_URLS = [
   "https://overpass-api.de/api/interpreter",
+  "https://overpass.private.coffee/api/interpreter",
+  "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
   "https://overpass.kumi.systems/api/interpreter"
 ];
+
+/* overpass-api.de rejects "bot-shaped" requests (406) since its 2024 AI-scraper
+ * filters: it wants a descriptive User-Agent with a contact and a real Accept.
+ * Public mirrors also rate-limit per IP (429), so successful responses are
+ * cached for 5 minutes — a group of 8 poking at the same block should cost
+ * one upstream request, not eight. */
+const OSM_HEADERS = {
+  "Content-Type": "application/x-www-form-urlencoded",
+  "User-Agent": "LumaEat/1.0 (group lunch picker; udbhavbhatnagar@gmail.com)",
+  "Accept": "application/json",
+  "Accept-Language": "en"
+};
+
+const osmCache = new Map<string, { at: number; data: any }>();
+const OSM_CACHE_TTL = 5 * 60 * 1000;
 
 async function osmSearch(loc: Geo, cuisines: string[]): Promise<Candidate[]> {
   const frag = cuisines
     .map(c => OSM_CUISINE[c.toLowerCase()] ?? c.toLowerCase().replace(/[^a-z]/g, ""))
     .filter(Boolean).join("|");
   const filter = frag ? `["cuisine"~"${frag}",i]` : "";
-  const around = `(around:2500,${loc.lat},${loc.lng})`;
+  const around = `(around:2500,${loc.lat.toFixed(3)},${loc.lng.toFixed(3)})`;
   const q = `[out:json][timeout:25];(
     node["amenity"~"restaurant|fast_food"]${filter}${around};
     way["amenity"~"restaurant|fast_food"]${filter}${around};
   );out center tags 60;`;
 
+  const cacheKey = around + "|" + frag;
+  const hit = osmCache.get(cacheKey);
+  if (hit && Date.now() - hit.at < OSM_CACHE_TTL) return parseOsm(hit.data);
+
   let data: any = null;
   for (const url of OVERPASS_URLS) {
     try {
-      const r = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: "data=" + encodeURIComponent(q)
-      });
+      const r = await fetch(url, { method: "POST", headers: OSM_HEADERS, body: "data=" + encodeURIComponent(q) });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       data = await r.json();
       break;
     } catch (e) { console.warn(`Overpass ${url} failed:`, (e as Error).message); }
   }
-  if (!data) throw new Error("Free places service unreachable — try again shortly or add places manually");
+  if (!data) throw new Error("Free places service unreachable — try again in ~30s, or add places manually below");
+  if (osmCache.size > 200) osmCache.clear();
+  osmCache.set(cacheKey, { at: Date.now(), data });
+  return parseOsm(data);
+}
+
+function parseOsm(data: any): Candidate[] {
 
   const seen = new Set<string>();
   return (data.elements ?? []).flatMap((el: any): Candidate[] => {
