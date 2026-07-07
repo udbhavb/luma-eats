@@ -130,10 +130,18 @@ export const CUISINE_SEED: [string, string][] = [
   ["Chinese", "🥡"], ["Thai", "🍜"], ["Burgers", "🍔"], ["Korean", "🍲"]
 ];
 
+// sessions start with a default location so search & auto-suggest always have
+// somewhere to look; the group can change it from the Places tab
+const DEFAULT_LOC = {
+  lat: Number(process.env.DEFAULT_LAT ?? 37.7749),
+  lng: Number(process.env.DEFAULT_LNG ?? -122.4194),
+  label: process.env.DEFAULT_LOC_LABEL ?? "San Francisco Bay Area"
+};
+
 export function createSession(name: string, decideBy?: string | null): string {
   const id = newId(6);
-  db.prepare(`INSERT INTO sessions (id, name, created_at, decide_by) VALUES (?, ?, ?, ?)`)
-    .run(id, name, Date.now(), decideBy ?? null);
+  db.prepare(`INSERT INTO sessions (id, name, created_at, decide_by, loc_lat, loc_lng, loc_label) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+    .run(id, name, Date.now(), decideBy ?? null, DEFAULT_LOC.lat, DEFAULT_LOC.lng, DEFAULT_LOC.label);
   const ins = db.prepare(`INSERT INTO cuisines (id, session_id, name, emoji, by) VALUES (?, ?, ?, ?, ?)`);
   for (const [n, e] of CUISINE_SEED) ins.run(newId(), id, n, e, "Luma");
   return id;
