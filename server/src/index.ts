@@ -1,3 +1,4 @@
+import "./env.js"; // must stay first — providers read env at module init
 import express from "express";
 import http from "node:http";
 import path from "node:path";
