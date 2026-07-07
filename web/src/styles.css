@@ -85,11 +85,13 @@ input:focus { outline: none; border-color: var(--accent); }
   display: inline-flex; align-items: center; gap: 6px;
   border: 1.5px solid var(--border); background: #fff; border-radius: 999px;
   padding: 8px 14px; font-weight: 600; font-size: 0.92rem; cursor: pointer;
+  color: var(--ink); /* buttons default to white text — chips must override */
   transition: border-color 0.15s, background 0.15s, transform 0.1s;
   animation: pop 0.25s ease both;
 }
-.chip:hover { border-color: #ddcfc0; }
-.chip.on { border-color: var(--accent); background: var(--accent-soft); }
+.chip:hover { border-color: #ddcfc0; background: #fff; }
+.chip.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-dark); }
+.chip.on:hover { background: var(--accent-soft); }
 .chip:active { transform: scale(0.93); }
 .chip .n {
   background: var(--accent); color: #fff; border-radius: 999px;
