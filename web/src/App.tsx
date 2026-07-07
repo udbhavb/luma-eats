@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, useSession } from "./api";
-import { ChatTab, CuisineTab, PlacesTab, VoteTab, WhenTab } from "./tabs";
+import { ChatPeek, ChatTab, CuisineTab, PlacesTab, VoteTab, WhenTab } from "./tabs";
 import { Countdown, nameColors, sessionEmoji, toast } from "./ui";
 import type { AppConfig } from "./types";
 
@@ -89,6 +89,7 @@ export default function App() {
       {tab === "places" && <PlacesTab s={state} me={me} config={config} />}
       {tab === "vote" && <VoteTab s={state} me={me} config={config} />}
       {tab === "chat" && <ChatTab s={state} me={me} />}
+      {tab !== "chat" && <ChatPeek s={state} onOpen={() => setTab("chat")} />}
 
       <footer>Luma Eat · you're {me} · {state.members.length} deciding</footer>
 

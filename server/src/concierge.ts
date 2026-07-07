@@ -30,7 +30,10 @@ export async function recommend(state: SessionState): Promise<Recommendation> {
       id: p.id, name: p.name, cuisine: p.cuisine, rating: p.rating,
       ratingCount: p.ratingCount, priceLevel: p.priceLevel,
       votes: p.votes, votedBy: p.votes
-    }))
+    })),
+    // recent discussion — often carries the real constraints ("can't do
+    // Thursday", "somewhere veg-friendly please") that votes don't capture
+    chat: state.messages.slice(-30).map(m => ({ from: m.author, said: m.text }))
   };
 
   const r = await fetch("https://api.anthropic.com/v1/messages", {
@@ -46,8 +49,10 @@ export async function recommend(state: SessionState): Promise<Recommendation> {
       system:
         "You are Luma, a warm and decisive food concierge helping a group break a deadlock on where to eat. " +
         "Weigh: vote counts, how many DIFFERENT people are satisfied (breadth beats depth), ratings and review counts, " +
-        "and cuisine preferences. Be decisive — pick exactly one. Keep reasoning to 2-3 sentences, " +
-        "friendly and concrete (mention who gets what they wanted). " +
+        "and cuisine preferences. The chat messages often carry the real constraints — dietary needs, budget, " +
+        "availability, strong feelings — treat a stated constraint as outweighing a vote count, and when chat sways " +
+        "your pick, cite the person by name (e.g. \"Priya's veg-friendly ask\"). Be decisive — pick exactly one. " +
+        "Keep reasoning to 2-3 sentences, friendly and concrete (mention who gets what they wanted). " +
         'Respond with ONLY a JSON object: {"placeId": "...", "reasoning": "...", "runnerUpId": "..." | null}',
       messages: [{ role: "user", content: JSON.stringify(summary) }]
     })

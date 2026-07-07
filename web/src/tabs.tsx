@@ -326,6 +326,24 @@ export function ChatTab({ s, me }: TabProps) {
   );
 }
 
+/** Compact strip of the latest chatter, shown under every non-chat tab so the
+ * discussion stays visible while people vote. Click-through opens the chat. */
+export function ChatPeek({ s, onOpen }: { s: SessionState; onOpen: () => void }) {
+  if (s.messages.length === 0) return null;
+  const recent = s.messages.slice(-3);
+  return (
+    <div className="chat-peek" onClick={onOpen} title="Open the discussion">
+      {recent.map(m => (
+        <div key={m.id} className="peek-line">
+          <span className="avatar" style={nameColors(m.author)}>{m.author.slice(0, 2).toUpperCase()}</span>
+          <span className="peek-text"><b>{m.author}</b>  {m.text}</span>
+        </div>
+      ))}
+      <div className="peek-more">💬 {s.messages.length} message{s.messages.length === 1 ? "" : "s"} — join the discussion →</div>
+    </div>
+  );
+}
+
 /* ================= VOTE ================= */
 
 export function VoteTab({ s, me, config }: TabProps & { config: AppConfig }) {
