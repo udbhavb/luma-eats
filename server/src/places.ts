@@ -68,6 +68,7 @@ export async function searchPlaces(loc: Geo, cuisines: string[]): Promise<Candid
   const results = isRealKey ? await googleSearch(loc, cuisines) : await osmSearch(loc, cuisines);
   return results
     .map(p => ({ ...p, distKm: p.lat != null ? +haversineKm(loc, { lat: p.lat, lng: p.lng! }).toFixed(2) : null }))
+    .filter(p => p.distKm == null || p.distKm <= 12) // hard cap: nothing "nearby" is 12km+ away
     .sort((a, b) =>
       // rating-weighted when available (Bayesian-ish shrink toward 4.0 so 2 reviews at 5.0 don't win),
       // distance otherwise
@@ -104,7 +105,15 @@ async function googleSearch(loc: Geo, cuisines: string[]): Promise<Candidate[]> 
     body: JSON.stringify({
       textQuery,
       maxResultCount: 20,
-      locationBias: { circle: { center: { latitude: loc.lat, longitude: loc.lng }, radius: 3000 } }
+      // locationRestriction, not locationBias — bias is merely a hint and
+      // Google will happily return matches from the other coast. searchText
+      // only supports rectangles, so: ~5km box around the group.
+      locationRestriction: {
+        rectangle: {
+          low: { latitude: loc.lat - 0.045, longitude: loc.lng - 0.045 / Math.cos(loc.lat * Math.PI / 180) },
+          high: { latitude: loc.lat + 0.045, longitude: loc.lng + 0.045 / Math.cos(loc.lat * Math.PI / 180) }
+        }
+      }
     })
   });
   if (!r.ok) throw new Error(`Google Places error ${r.status}: ${(await r.text()).slice(0, 200)}`);

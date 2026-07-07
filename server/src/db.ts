@@ -133,9 +133,9 @@ export const CUISINE_SEED: [string, string][] = [
 // sessions start with a default location so search & auto-suggest always have
 // somewhere to look; the group can change it from the Places tab
 const DEFAULT_LOC = {
-  lat: Number(process.env.DEFAULT_LAT ?? 37.7749),
-  lng: Number(process.env.DEFAULT_LNG ?? -122.4194),
-  label: process.env.DEFAULT_LOC_LABEL ?? "San Francisco Bay Area"
+  lat: Number(process.env.DEFAULT_LAT ?? 37.3688),
+  lng: Number(process.env.DEFAULT_LNG ?? -122.0363),
+  label: process.env.DEFAULT_LOC_LABEL ?? "South Bay"
 };
 
 export function createSession(name: string, decideBy?: string | null): string {

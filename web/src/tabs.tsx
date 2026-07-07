@@ -163,9 +163,13 @@ export function PlacesTab({ s, me, config }: TabProps & { config: AppConfig }) {
   };
 
   const useMyLocation = () => {
+    if (!navigator.geolocation) return toast("No geolocation in this browser — type an address instead");
     navigator.geolocation.getCurrentPosition(
-      pos => run(api.setLocation(s.id, { lat: pos.coords.latitude, lng: pos.coords.longitude, label: "shared location" })),
-      () => toast("Couldn't get your location — type an address instead")
+      pos => {
+        run(api.setLocation(s.id, { lat: pos.coords.latitude, lng: pos.coords.longitude, label: "shared location" }));
+        setResults([]);
+      },
+      () => toast("Couldn't get your location (needs https or localhost) — type an address instead")
     );
   };
 
@@ -175,35 +179,32 @@ export function PlacesTab({ s, me, config }: TabProps & { config: AppConfig }) {
     <div className="card">
       <h2>📍 Find places nearby</h2>
 
-      {!s.location ? (
-        <>
-          <p className="sub">Where's the group? Everyone shares this location.</p>
-          <div className="row" style={{ marginBottom: 8 }}>
-            <input
-              placeholder="Address or neighborhood…"
-              value={addr}
-              onChange={e => setAddr(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && addr && run(api.setLocation(s.id, { query: addr }))}
-            />
-            <button onClick={() => addr && run(api.setLocation(s.id, { query: addr }))}>Set</button>
-          </div>
-          <button className="sec" onClick={useMyLocation}>📱 Use my location</button>
-        </>
-      ) : (
-        <>
-          <p className="sub">
-            Near <b>{s.location.label}</b>{" "}
-            <a href="#" onClick={e => { e.preventDefault(); run(api.setLocation(s.id, {})); setResults([]); }}>change</a>
-          </p>
-          <p className="sub">
-            {topCuisines.length
-              ? <>Top cuisines: {topCuisines.map(c => <b key={c.id}>{c.emoji} {c.name}  </b>)}</>
-              : "No cuisine votes yet — searching all restaurants."}
-          </p>
+      <p className="sub">
+        {s.location ? <>Near <b>{s.location.label}</b> — shared by the whole group.</> : "Where's the group?"}
+      </p>
+      <div className="row" style={{ marginBottom: 8 }}>
+        <input
+          placeholder="Change area — address or neighborhood…"
+          value={addr}
+          onChange={e => setAddr(e.target.value)}
+          onKeyDown={e => e.key === "Enter" && addr.trim() && (run(api.setLocation(s.id, { query: addr.trim() })), setAddr(""), setResults([]))}
+        />
+        <button onClick={() => { if (addr.trim()) { run(api.setLocation(s.id, { query: addr.trim() })); setAddr(""); setResults([]); } }}>Set</button>
+      </div>
+      <div className="row">
+        <button className="sec" onClick={useMyLocation}>📱 Use my location</button>
+        {s.location && (
           <button onClick={search} disabled={loading}>
             {loading ? <><span className="spin" /> Searching…</> : "🔎 Find restaurants"}
           </button>
-        </>
+        )}
+      </div>
+      {s.location && (
+        <p className="sub" style={{ marginTop: 8 }}>
+          {topCuisines.length
+            ? <>Top cuisines: {topCuisines.map(c => <b key={c.id}>{c.emoji} {c.name}  </b>)}</>
+            : "No cuisine votes yet — searching all restaurants."}
+        </p>
       )}
 
       {error && <div className="banner warn">{error}</div>}
