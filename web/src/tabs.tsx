@@ -49,6 +49,11 @@ export function WhenTab({ s, me }: TabProps) {
         <button onClick={() => { if (val) { run(api.addTime(s.id, val, me)); setVal(""); } }}>Add</button>
       </div>
 
+      {s.timeOptions.length === 0 ? (
+        <p className="sub" style={{ marginTop: 14 }}>
+          ⏳ Propose a time and you'll be able to set a decision deadline.
+        </p>
+      ) : (
       <details style={{ marginTop: 14 }}>
         <summary className="sub" style={{ cursor: "pointer" }}>
           ⏳ {s.decideBy ? "Change decision deadline" : "Set a decision deadline (optional)"}
@@ -62,6 +67,7 @@ export function WhenTab({ s, me }: TabProps) {
           {s.decideBy && <button className="ghost" onClick={() => run(api.setDeadline(s.id, null))}>Clear</button>}
         </div>
       </details>
+      )}
     </div>
   );
 }

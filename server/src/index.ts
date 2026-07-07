@@ -74,8 +74,8 @@ app.post("/api/sessions/:id/time-options", asyncH(async (req, res) => {
   const { iso, by } = req.body;
   if (!iso || isNaN(Date.parse(iso))) throw new Error("Valid time required");
   const id = newId();
-  db.prepare(`INSERT INTO time_options (id, session_id, iso, by) VALUES (?, ?, ?, ?)`)
-    .run(id, req.params.id, iso, clean(by, 24));
+  db.prepare(`INSERT INTO time_options (id, session_id, iso, by, created_at) VALUES (?, ?, ?, ?, ?)`)
+    .run(id, req.params.id, iso, clean(by, 24), Date.now());
   toggleVote(req.params.id, "time", id, clean(by, 24)); // proposer auto-votes
   broadcast(req.params.id);
   res.json({ id });
@@ -191,9 +191,12 @@ app.post("/api/sessions/:id/messages", asyncH(async (req, res) => {
 }));
 
 app.post("/api/sessions/:id/deadline", asyncH(async (req, res) => {
-  requireSession(req);
+  const state = requireSession(req);
   const iso = req.body.iso;
   if (iso && isNaN(Date.parse(iso))) throw new Error("Bad deadline");
+  // a deadline with nothing to decide would just be a timer to nowhere
+  if (iso && state.timeOptions.length === 0)
+    throw new Error("Propose at least one time before setting a deadline");
   db.prepare(`UPDATE sessions SET decide_by = ? WHERE id = ?`).run(iso ?? null, req.params.id);
   broadcast(req.params.id);
   res.json({ ok: true });
@@ -221,36 +224,88 @@ function pickLeader(opts: { id: string; votes: string[] }[], tiebreak?: (a: any,
   return (tiebreak ? leaders[0] : leaders[Math.floor(Math.random() * leaders.length)]).id;
 }
 
-function autoFinalizeSweep() {
+/** When should Luma step in and suggest places for an empty ballot?
+ *  - at the decision deadline, and/or
+ *  - 1h before the locked meal time — but never sooner than 1h after that
+ *    winning time was proposed (a meal locked on short notice still gives
+ *    the group their hour). Both configured → whichever comes first. */
+function suggestDue(state: NonNullable<ReturnType<typeof getState>>): boolean {
+  const triggers: number[] = [];
+  if (state.decideBy && !isNaN(Date.parse(state.decideBy))) triggers.push(Date.parse(state.decideBy));
+  const meal: any = state.timeOptions.find(o => o.id === state.timeFinal);
+  if (meal && !isNaN(Date.parse(meal.iso))) {
+    triggers.push(Math.max(Date.parse(meal.iso) - 3600_000, (meal.createdAt ?? 0) + 3600_000));
+  }
+  return triggers.length > 0 && Math.min(...triggers) <= Date.now();
+}
+
+const lastSuggestAttempt = new Map<string, number>(); // per-session backoff for failed searches
+
+async function autoSuggestPlaces(sessionId: string, state: NonNullable<ReturnType<typeof getState>>) {
+  const voted = state.cuisines
+    .filter(c => c.votes.length > 0)
+    .sort((a, b) => b.votes.length - a.votes.length)
+    .slice(0, 3);
+  // nobody voted a cuisine either? Luma picks two off the board at random
+  const chosen = voted.length ? voted : [...state.cuisines].sort(() => Math.random() - 0.5).slice(0, 2);
+  const results = await searchPlaces(state.location!, chosen.map(c => c.name));
+  const picks = results.slice(0, 4).filter(p => !state.places.some(x => x.name.toLowerCase() === p.name.toLowerCase()));
+  if (!picks.length) return false;
+  const ins = db.prepare(`INSERT INTO places
+    (id, session_id, name, cuisine, address, lat, lng, rating, rating_count, price_level, maps_url, source, by)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+  for (const p of picks) {
+    ins.run(newId(), sessionId, p.name, p.cuisine, p.address, p.lat, p.lng,
+      p.rating, p.ratingCount, p.priceLevel, p.mapsUrl, p.source, "Luma");
+  }
+  db.prepare(`INSERT INTO messages (id, session_id, author, text, created_at) VALUES (?, ?, ?, ?, ?)`)
+    .run(newId(), sessionId, "Luma",
+      `⏰ Nobody put places on the ballot, so I added ${picks.length} well-reviewed ${chosen.map(c => c.name).join("/")} spots nearby${voted.length ? "" : " (nobody voted a cuisine either, so I picked a couple)"}. Vote away — or add your own!`,
+      Date.now());
+  console.log(`🤖 auto-suggested ${picks.length} places for session ${sessionId}`);
+  return true;
+}
+
+async function sweep() {
   const rows = db.prepare(
-    `SELECT id, decide_by FROM sessions
-     WHERE decide_by IS NOT NULL AND (time_final IS NULL OR place_final IS NULL)`
-  ).all() as { id: string; decide_by: string }[];
+    `SELECT id FROM sessions WHERE decide_by IS NOT NULL OR time_final IS NOT NULL`
+  ).all() as { id: string }[];
 
   for (const r of rows) {
-    const due = Date.parse(r.decide_by);
-    if (isNaN(due) || due > Date.now()) continue;
     const state = getState(r.id);
     if (!state) continue;
     let changed = false;
-    if (!state.timeFinal) {
-      // highest-voted time; tied leaders are picked at random
-      const w = pickLeader(state.timeOptions);
-      if (w) { db.prepare(`UPDATE sessions SET time_final = ? WHERE id = ?`).run(w, r.id); state.timeFinal = w; changed = true; }
+
+    // 1) deadline-driven finalization
+    const deadlinePassed = !!state.decideBy && !isNaN(Date.parse(state.decideBy)) && Date.parse(state.decideBy) <= Date.now();
+    if (deadlinePassed) {
+      if (!state.timeFinal) {
+        // highest-voted time; tied leaders picked at random; zero votes = poll stays open
+        const w = pickLeader(state.timeOptions);
+        if (w) { db.prepare(`UPDATE sessions SET time_final = ? WHERE id = ?`).run(w, r.id); state.timeFinal = w; changed = true; }
+      }
+      // a plan needs a locked time before a place can lock
+      if (state.timeFinal && !state.placeFinal) {
+        const w = pickLeader(state.places, (a, b) => (b.rating ?? 0) - (a.rating ?? 0));
+        if (w) { db.prepare(`UPDATE sessions SET place_final = ? WHERE id = ?`).run(w, r.id); changed = true; }
+      }
+      if (changed) console.log(`⏰ deadline hit for session ${r.id} — auto-locked leaders`);
     }
-    // a plan needs a locked time before a place can lock
-    if (state.timeFinal && !state.placeFinal) {
-      const w = pickLeader(state.places, (a, b) => (b.rating ?? 0) - (a.rating ?? 0));
-      if (w) { db.prepare(`UPDATE sessions SET place_final = ? WHERE id = ?`).run(w, r.id); changed = true; }
+
+    // 2) empty ballot at crunch time → Luma suggests (needs a location to search near)
+    if (!state.placeFinal && state.places.length === 0 && state.location && suggestDue(state)
+        && Date.now() - (lastSuggestAttempt.get(r.id) ?? 0) > 120_000) {
+      lastSuggestAttempt.set(r.id, Date.now());
+      try {
+        if (await autoSuggestPlaces(r.id, state)) changed = true;
+      } catch (e) { console.warn(`auto-suggest failed for ${r.id}:`, (e as Error).message); }
     }
-    if (changed) {
-      console.log(`⏰ deadline hit for session ${r.id} — auto-locked leaders`);
-      broadcast(r.id);
-    }
+
+    if (changed) broadcast(r.id);
   }
 }
-setInterval(autoFinalizeSweep, 10_000);
-autoFinalizeSweep(); // catch anything that expired while the server was down
+setInterval(() => { sweep().catch(e => console.error("sweep error:", e)); }, 10_000);
+sweep().catch(e => console.error("sweep error:", e)); // catch anything that expired while the server was down
 
 /* ---------------- static frontend ---------------- */
 

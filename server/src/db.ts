@@ -30,7 +30,8 @@ CREATE TABLE IF NOT EXISTS time_options (
   id TEXT PRIMARY KEY,
   session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
   iso TEXT NOT NULL,
-  by TEXT NOT NULL
+  by TEXT NOT NULL,
+  created_at INTEGER
 );
 CREATE TABLE IF NOT EXISTS cuisines (
   id TEXT PRIMARY KEY,
@@ -66,6 +67,10 @@ CREATE TABLE IF NOT EXISTS votes (
 );
 `);
 
+// migration for DBs created before time_options.created_at existed
+try { db.exec(`ALTER TABLE time_options ADD COLUMN created_at INTEGER`); } catch { /* already there */ }
+db.prepare(`UPDATE time_options SET created_at = ? WHERE created_at IS NULL`).run(Date.now());
+
 export const newId = (len = 8) => crypto.randomBytes(len).toString("base64url").slice(0, len);
 
 /* ---------- queries ---------- */
@@ -98,7 +103,7 @@ export function getState(sessionId: string) {
     placeFinal: s.place_final,
     members: (db.prepare(`SELECT name FROM members WHERE session_id = ? ORDER BY joined_at`).all(sessionId) as any[]).map(m => m.name),
     timeOptions: (db.prepare(`SELECT * FROM time_options WHERE session_id = ?`).all(sessionId) as any[])
-      .map(o => ({ id: o.id, iso: o.iso, by: o.by, votes: tv[o.id] ?? [] })),
+      .map(o => ({ id: o.id, iso: o.iso, by: o.by, createdAt: o.created_at, votes: tv[o.id] ?? [] })),
     cuisines: (db.prepare(`SELECT * FROM cuisines WHERE session_id = ?`).all(sessionId) as any[])
       .map(c => ({ id: c.id, name: c.name, emoji: c.emoji, by: c.by, votes: cv[c.id] ?? [] })),
     places: (db.prepare(`SELECT * FROM places WHERE session_id = ?`).all(sessionId) as any[])
