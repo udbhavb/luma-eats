@@ -27,7 +27,7 @@ Dev mode: `npm install && npm run dev` (server :8787, Vite :5173 with proxy).
 
 The core insight: group food decisions stall not because people lack options, but because **nobody wants to be the decider**. So the product is structured as a funnel that shrinks the decision at each step, with three pressure-release valves:
 
-1. **Anyone can "Pick"** — locking a choice isn't gated on an organizer role. Social pressure keeps this honest in a lunch group of 5–10; a permissions system would add friction without value at this scale.
+1. **Anyone can "Pick" — but places only after the clock runs out.** There's no organizer role (permissions add friction without value at this scale), yet an early lock on a place would short-circuit the vote. So place-picking is server-enforced to unlock only once the decision deadline or the meal time passes; until then everyone votes. Times can be picked anytime — you need a locked time to create the gate.
 2. **The Claude concierge** — when the final vote ties or fragments, Claude reads the whole session (who voted for what, ratings, cuisine preferences) and makes one decisive recommendation with reasoning that names who gets what they wanted. A tie-break you can blame on the robot is a tie-break people accept.
 3. **The decision deadline** — optional countdown; when it expires the server auto-locks the top-voted time and place (ties break deterministically: earliest suggestion for times, higher rating for places, never a zero-vote option). The sweep runs server-side every 10s, so the decision lands even if nobody has the tab open.
 

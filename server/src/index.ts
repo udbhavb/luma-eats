@@ -148,6 +148,18 @@ app.post("/api/sessions/:id/ballot", asyncH(async (req, res) => {
   res.json({ id });
 }));
 
+/** A place can be manually locked only after the decision deadline or the
+ * locked meal time passes — before that, early "Pick"s would short-circuit
+ * the vote. No gate configured = picking stays open (otherwise a session
+ * without a deadline could never finalize). Undo is always allowed. */
+function placePickUnlocked(state: NonNullable<ReturnType<typeof getState>>) {
+  const gates = [
+    state.decideBy,
+    state.timeOptions.find(o => o.id === state.timeFinal)?.iso
+  ].filter((x): x is string => !!x).map(x => Date.parse(x)).filter(t => !isNaN(t));
+  return gates.length === 0 || gates.some(t => Date.now() >= t);
+}
+
 app.post("/api/sessions/:id/finalize", asyncH(async (req, res) => {
   const state = requireSession(req);
   const { kind, optionId } = req.body; // optionId null = undo
@@ -156,6 +168,8 @@ app.post("/api/sessions/:id/finalize", asyncH(async (req, res) => {
     db.prepare(`UPDATE sessions SET time_final = ? WHERE id = ?`).run(optionId ?? null, req.params.id);
   } else if (kind === "place") {
     if (optionId && !state.places.some(o => o.id === optionId)) throw new Error("Unknown place");
+    if (optionId && !placePickUnlocked(state))
+      throw new Error("Voting stays open until the decision deadline or meal time — until then, vote!");
     db.prepare(`UPDATE sessions SET place_final = ? WHERE id = ?`).run(optionId ?? null, req.params.id);
   } else throw new Error("Bad finalize kind");
   broadcast(req.params.id);

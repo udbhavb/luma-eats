@@ -269,6 +269,18 @@ export function VoteTab({ s, me, config }: TabProps & { config: AppConfig }) {
   const [thinking, setThinking] = useState(false);
   const celebrated = useRef(false);
 
+  // manual Pick unlocks when the decision deadline or the meal time passes
+  // (mirrors the server rule; re-checked every 10s so it flips live)
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => tick(x => x + 1), 10_000);
+    return () => clearInterval(t);
+  }, []);
+  const gates = [s.decideBy, finalTime?.iso]
+    .filter((x): x is string => !!x).map(x => Date.parse(x)).filter(t => !isNaN(t));
+  const pickUnlocked = gates.length === 0 || gates.some(t => Date.now() >= t);
+  const gateLabel = gates.length ? fmtTime(new Date(Math.min(...gates)).toISOString()) : null;
+
   useEffect(() => {
     if (finalPlace && !celebrated.current) {
       celebrated.current = true;
@@ -306,6 +318,12 @@ export function VoteTab({ s, me, config }: TabProps & { config: AppConfig }) {
 
       {s.places.length === 0 && <p className="sub">Nothing on the ballot yet — head to 📍 Places.</p>}
 
+      {!finalPlace && !pickUnlocked && s.places.length > 0 && (
+        <div className="banner warn">
+          🔒 Voting is open — the winner locks {gateLabel} (or anyone can pick manually after that).
+        </div>
+      )}
+
       {[...s.places].sort((a, b) => b.votes.length - a.votes.length).map(p => (
         <PollRow
           key={p.id}
@@ -318,7 +336,7 @@ export function VoteTab({ s, me, config }: TabProps & { config: AppConfig }) {
           isWinner={s.placeFinal === p.id}
           isLeader={!s.placeFinal && p.votes.length === max && max > 0}
           onToggle={() => run(api.vote(s.id, "place", p.id, me))}
-          onPick={s.placeFinal ? undefined : () => run(api.finalize(s.id, "place", p.id))}
+          onPick={s.placeFinal || !pickUnlocked ? undefined : () => run(api.finalize(s.id, "place", p.id))}
         />
       ))}
 
@@ -334,9 +352,18 @@ export function VoteTab({ s, me, config }: TabProps & { config: AppConfig }) {
               <b>🤖 Luma suggests: {recPlace.name}</b>
               <p style={{ margin: "6px 0" }}>{rec.reasoning}</p>
               <div className="row">
-                <button onClick={() => { run(api.finalize(s.id, "place", rec.placeId)); setRec(null); }}>
-                  Go with it 🎉
-                </button>
+                {pickUnlocked ? (
+                  <button onClick={() => { run(api.finalize(s.id, "place", rec.placeId)); setRec(null); }}>
+                    Go with it 🎉
+                  </button>
+                ) : (
+                  <button onClick={() => {
+                    if (!recPlace.votes.includes(me)) run(api.vote(s.id, "place", rec.placeId, me));
+                    setRec(null);
+                  }}>
+                    Vote for it 👍
+                  </button>
+                )}
                 <button className="ghost" onClick={() => setRec(null)}>Keep voting</button>
               </div>
             </div>
