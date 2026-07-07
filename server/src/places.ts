@@ -1,0 +1,183 @@
+/**
+ * Places + geocoding, provider-abstracted:
+ *  - GOOGLE_CLOUD_API_KEY present → Google Places API (New) searchText + Geocoding API.
+ *    Real ratings & review counts ("best reviewed" done properly).
+ *  - No key → OpenStreetMap (Overpass + Nominatim). Free, no key, but no ratings —
+ *    results are sorted by distance and the UI links out to Google Maps for reviews.
+ */
+
+const GOOGLE_KEY = process.env.GOOGLE_CLOUD_API_KEY?.trim();
+const isRealKey = !!GOOGLE_KEY && !/^x+$/i.test(GOOGLE_KEY);
+
+export const placesProvider = isRealKey ? "google" : "osm";
+
+export interface Candidate {
+  name: string;
+  cuisine: string;
+  address: string;
+  lat: number | null;
+  lng: number | null;
+  rating: number | null;
+  ratingCount: number | null;
+  priceLevel: number | null; // 1-4
+  mapsUrl: string;
+  source: "google" | "osm";
+  distKm: number | null;
+}
+
+export interface Geo { lat: number; lng: number; label: string; }
+
+const haversineKm = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) => {
+  const R = 6371, dLat = (b.lat - a.lat) * Math.PI / 180, dLng = (b.lng - a.lng) * Math.PI / 180;
+  const h = Math.sin(dLat / 2) ** 2 +
+    Math.cos(a.lat * Math.PI / 180) * Math.cos(b.lat * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+};
+
+const fallbackMapsUrl = (name: string, address?: string) =>
+  `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(name + (address ? ", " + address : ""))}`;
+
+/* ---------------- geocoding ---------------- */
+
+export async function geocode(query: string): Promise<Geo> {
+  if (isRealKey) {
+    const r = await fetch(
+      `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(query)}&key=${GOOGLE_KEY}`
+    );
+    const j: any = await r.json();
+    const hit = j.results?.[0];
+    if (!hit) throw new Error("Address not found");
+    return {
+      lat: hit.geometry.location.lat,
+      lng: hit.geometry.location.lng,
+      label: hit.formatted_address.split(",").slice(0, 2).join(",")
+    };
+  }
+  const r = await fetch(
+    `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`,
+    { headers: { "User-Agent": "luma-eat-take-home/1.0" } }
+  );
+  const j: any = await r.json();
+  if (!j.length) throw new Error("Address not found");
+  return { lat: +j[0].lat, lng: +j[0].lon, label: j[0].display_name.split(",").slice(0, 2).join(",") };
+}
+
+/* ---------------- search ---------------- */
+
+export async function searchPlaces(loc: Geo, cuisines: string[]): Promise<Candidate[]> {
+  const results = isRealKey ? await googleSearch(loc, cuisines) : await osmSearch(loc, cuisines);
+  return results
+    .map(p => ({ ...p, distKm: p.lat != null ? +haversineKm(loc, { lat: p.lat, lng: p.lng! }).toFixed(2) : null }))
+    .sort((a, b) =>
+      // rating-weighted when available (Bayesian-ish shrink toward 4.0 so 2 reviews at 5.0 don't win),
+      // distance otherwise
+      (score(b) - score(a)) || ((a.distKm ?? 99) - (b.distKm ?? 99))
+    )
+    .slice(0, 18);
+}
+
+const score = (p: Candidate) =>
+  p.rating != null && p.ratingCount != null
+    ? (p.rating * p.ratingCount + 4.0 * 20) / (p.ratingCount + 20)
+    : 0;
+
+const PRICE_MAP: Record<string, number> = {
+  PRICE_LEVEL_FREE: 1, PRICE_LEVEL_INEXPENSIVE: 1, PRICE_LEVEL_MODERATE: 2,
+  PRICE_LEVEL_EXPENSIVE: 3, PRICE_LEVEL_VERY_EXPENSIVE: 4
+};
+
+async function googleSearch(loc: Geo, cuisines: string[]): Promise<Candidate[]> {
+  const textQuery = cuisines.length
+    ? `best ${cuisines.join(" or ")} restaurants`
+    : "best restaurants";
+  const r = await fetch("https://places.googleapis.com/v1/places:searchText", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Goog-Api-Key": GOOGLE_KEY!,
+      "X-Goog-FieldMask": [
+        "places.displayName", "places.rating", "places.userRatingCount",
+        "places.priceLevel", "places.formattedAddress", "places.location",
+        "places.googleMapsUri", "places.primaryTypeDisplayName"
+      ].join(",")
+    },
+    body: JSON.stringify({
+      textQuery,
+      maxResultCount: 20,
+      locationBias: { circle: { center: { latitude: loc.lat, longitude: loc.lng }, radius: 3000 } }
+    })
+  });
+  if (!r.ok) throw new Error(`Google Places error ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  const j: any = await r.json();
+  return (j.places ?? []).map((p: any): Candidate => ({
+    name: p.displayName?.text ?? "Unknown",
+    cuisine: p.primaryTypeDisplayName?.text ?? "",
+    address: p.formattedAddress ?? "",
+    lat: p.location?.latitude ?? null,
+    lng: p.location?.longitude ?? null,
+    rating: p.rating ?? null,
+    ratingCount: p.userRatingCount ?? null,
+    priceLevel: p.priceLevel ? PRICE_MAP[p.priceLevel] ?? null : null,
+    mapsUrl: p.googleMapsUri ?? fallbackMapsUrl(p.displayName?.text ?? ""),
+    source: "google",
+    distKm: null
+  }));
+}
+
+/* OSM cuisine-tag mapping for common answers */
+const OSM_CUISINE: Record<string, string> = {
+  italian: "italian|pasta|pizza", mexican: "mexican|tacos|burrito", japanese: "japanese|ramen|sushi",
+  indian: "indian", chinese: "chinese", thai: "thai", burgers: "burger",
+  korean: "korean", mediterranean: "mediterranean|greek|lebanese|turkish",
+  vietnamese: "vietnamese", bbq: "bbq|barbecue", vegan: "vegan|vegetarian",
+  sushi: "sushi|japanese", pizza: "pizza"
+};
+
+const OVERPASS_URLS = [
+  "https://overpass-api.de/api/interpreter",
+  "https://overpass.kumi.systems/api/interpreter"
+];
+
+async function osmSearch(loc: Geo, cuisines: string[]): Promise<Candidate[]> {
+  const frag = cuisines
+    .map(c => OSM_CUISINE[c.toLowerCase()] ?? c.toLowerCase().replace(/[^a-z]/g, ""))
+    .filter(Boolean).join("|");
+  const filter = frag ? `["cuisine"~"${frag}",i]` : "";
+  const around = `(around:2500,${loc.lat},${loc.lng})`;
+  const q = `[out:json][timeout:25];(
+    node["amenity"~"restaurant|fast_food"]${filter}${around};
+    way["amenity"~"restaurant|fast_food"]${filter}${around};
+  );out center tags 60;`;
+
+  let data: any = null;
+  for (const url of OVERPASS_URLS) {
+    try {
+      const r = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: "data=" + encodeURIComponent(q)
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      data = await r.json();
+      break;
+    } catch (e) { console.warn(`Overpass ${url} failed:`, (e as Error).message); }
+  }
+  if (!data) throw new Error("Free places service unreachable — try again shortly or add places manually");
+
+  const seen = new Set<string>();
+  return (data.elements ?? []).flatMap((el: any): Candidate[] => {
+    const t = el.tags ?? {};
+    const lat = el.lat ?? el.center?.lat, lng = el.lon ?? el.center?.lon;
+    if (!t.name || lat == null || seen.has(t.name)) return [];
+    seen.add(t.name);
+    const address = [t["addr:housenumber"], t["addr:street"]].filter(Boolean).join(" ");
+    return [{
+      name: t.name,
+      cuisine: (t.cuisine ?? "").split(";")[0].replace(/_/g, " "),
+      address, lat, lng,
+      rating: null, ratingCount: null, priceLevel: null,
+      mapsUrl: fallbackMapsUrl(t.name, address),
+      source: "osm", distKm: null
+    }];
+  });
+}

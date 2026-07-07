@@ -1,0 +1,11 @@
+services:
+  luma-eat:
+    build: .
+    ports:
+      - "8787:8787"
+    env_file:
+      - .env
+    volumes:
+      - luma-data:/app/server/data
+volumes:
+  luma-data:
