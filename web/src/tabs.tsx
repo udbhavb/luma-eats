@@ -278,7 +278,7 @@ export function VoteTab({ s, me, config }: TabProps & { config: AppConfig }) {
   }, []);
   const gates = [s.decideBy, finalTime?.iso]
     .filter((x): x is string => !!x).map(x => Date.parse(x)).filter(t => !isNaN(t));
-  const pickUnlocked = gates.length === 0 || gates.some(t => Date.now() >= t);
+  const pickUnlocked = !!finalTime && gates.some(t => Date.now() >= t);
   const gateLabel = gates.length ? fmtTime(new Date(Math.min(...gates)).toISOString()) : null;
 
   useEffect(() => {
@@ -320,7 +320,9 @@ export function VoteTab({ s, me, config }: TabProps & { config: AppConfig }) {
 
       {!finalPlace && !pickUnlocked && s.places.length > 0 && (
         <div className="banner warn">
-          🔒 Voting is open — the winner locks {gateLabel} (or anyone can pick manually after that).
+          {finalTime
+            ? <>🔒 Voting is open — the winner locks {gateLabel} (or anyone can pick manually after that).</>
+            : <>🔒 Plans need a <b>when</b> before a <b>where</b> — lock a time in the 🕐 When tab, or set a deadline and the top-voted time locks itself.</>}
         </div>
       )}
 
