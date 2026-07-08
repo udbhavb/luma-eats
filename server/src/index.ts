@@ -47,6 +47,31 @@ app.get("/api/config", (_req, res) => {
   res.json({ ai: aiEnabled, placesProvider });
 });
 
+/** Decision telemetry (aggregate only — no user tracking). The product's
+ * claim is "groups decide quickly"; this endpoint measures exactly that. */
+app.get("/api/stats", (_req, res) => {
+  const rows = db.prepare(
+    `SELECT created_at, time_final_at, place_final_at, time_final_source, place_final_source FROM sessions`
+  ).all() as any[];
+  const completed = rows.filter(r => r.time_final_at && r.place_final_at);
+  const durations = completed
+    .map(r => Math.max(r.time_final_at, r.place_final_at) - r.created_at)
+    .sort((a, b) => a - b);
+  const bySource = (key: string) =>
+    rows.reduce((m: Record<string, number>, r) => {
+      if (r[key]) m[r[key]] = (m[r[key]] ?? 0) + 1;
+      return m;
+    }, {});
+  res.json({
+    sessionsCreated: rows.length,
+    plansCompleted: completed.length,
+    completionRate: rows.length ? +(completed.length / rows.length).toFixed(2) : null,
+    medianMsToPlan: durations.length ? durations[Math.floor(durations.length / 2)] : null,
+    timeLockSource: bySource("time_final_source"),
+    placeLockSource: bySource("place_final_source")
+  });
+});
+
 app.post("/api/sessions", asyncH(async (req, res) => {
   const name = clean(req.body.name);
   if (!name) throw new Error("Session name required");
@@ -153,16 +178,21 @@ app.post("/api/sessions/:id/ballot", asyncH(async (req, res) => {
 app.post("/api/sessions/:id/finalize", asyncH(async (req, res) => {
   const state = requireSession(req);
   const { kind, optionId } = req.body; // optionId null = undo
+  // telemetry: how did this lock happen? human pick vs accepted AI recommendation
+  const source = optionId ? (req.body.source === "concierge" ? "concierge" : "pick") : null;
+  const at = optionId ? Date.now() : null;
   if (kind === "time") {
     if (optionId && !state.timeOptions.some(o => o.id === optionId)) throw new Error("Unknown option");
-    db.prepare(`UPDATE sessions SET time_final = ? WHERE id = ?`).run(optionId ?? null, req.params.id);
+    db.prepare(`UPDATE sessions SET time_final = ?, time_final_at = ?, time_final_source = ? WHERE id = ?`)
+      .run(optionId ?? null, at, source, req.params.id);
   } else if (kind === "place") {
     if (optionId && !state.places.some(o => o.id === optionId)) throw new Error("Unknown place");
     if (optionId && !placePickUnlocked(state))
       throw new Error(state.timeFinal
         ? "Voting stays open until the decision deadline or meal time — until then, vote!"
         : "Lock in a time first — plans need a when before a where");
-    db.prepare(`UPDATE sessions SET place_final = ? WHERE id = ?`).run(optionId ?? null, req.params.id);
+    db.prepare(`UPDATE sessions SET place_final = ?, place_final_at = ?, place_final_source = ? WHERE id = ?`)
+      .run(optionId ?? null, at, source, req.params.id);
   } else throw new Error("Bad finalize kind");
   broadcast(req.params.id);
   res.json({ ok: true });
@@ -259,12 +289,20 @@ async function sweep() {
       if (!state.timeFinal) {
         // highest-voted time; tied leaders picked at random; zero votes = poll stays open
         const w = pickLeader(state.timeOptions);
-        if (w) { db.prepare(`UPDATE sessions SET time_final = ? WHERE id = ?`).run(w, r.id); state.timeFinal = w; changed = true; }
+        if (w) {
+          db.prepare(`UPDATE sessions SET time_final = ?, time_final_at = ?, time_final_source = 'sweep' WHERE id = ?`)
+            .run(w, Date.now(), r.id);
+          state.timeFinal = w; changed = true;
+        }
       }
       // a plan needs a locked time before a place can lock
       if (state.timeFinal && !state.placeFinal) {
         const w = pickLeader(state.places, (a, b) => (b.rating ?? 0) - (a.rating ?? 0));
-        if (w) { db.prepare(`UPDATE sessions SET place_final = ? WHERE id = ?`).run(w, r.id); changed = true; }
+        if (w) {
+          db.prepare(`UPDATE sessions SET place_final = ?, place_final_at = ?, place_final_source = 'sweep' WHERE id = ?`)
+            .run(w, Date.now(), r.id);
+          changed = true;
+        }
       }
       if (changed) console.log(`⏰ deadline hit for session ${r.id} — auto-locked leaders`);
     }

@@ -51,6 +51,33 @@ If nobody suggests restaurants, the server creates an initial ballot using the g
 - **Votes stored as individual records.** Naturally idempotent.
 - **No authentication.** Link possession is the trust model to keep onboarding friction low.
 
+## Observability
+
+The product's success claim is "groups decide quickly" — so that's the one thing I instrumented. Decision telemetry, not user tracking.
+
+**What's recorded:** on each session, when the time and place got locked (`time_final_at`, `place_final_at`) and how — `pick` (a human), `sweep` (deadline auto-lock) or `concierge` (accepted AI recommendation). Undo clears the fields so completion stats stay honest.
+
+**How to read it:**
+
+```bash
+curl -s https://server-production-f70a.up.railway.app/api/stats
+```
+
+```json
+{
+  "sessionsCreated": 42,
+  "plansCompleted": 31,
+  "completionRate": 0.74,
+  "medianMsToPlan": 5400000,
+  "timeLockSource": { "pick": 20, "sweep": 11 },
+  "placeLockSource": { "pick": 14, "sweep": 9, "concierge": 8 }
+}
+```
+
+`medianMsToPlan` is created→fully-decided for completed sessions (that 5400000 would be a 90-minute median). The source splits answer the question I actually care about: do the deadline and the concierge close decisions, or do humans do all the work? Raw rows live in SQLite (`server/data/luma.db`, `sessions` table) for anything ad-hoc.
+
+**What I deliberately did not add:** third-party analytics or per-user event tracking — there are no users to learn from yet and it's all consent baggage — and infra observability (structured logs, metrics, tracing), which belongs with the production hardening listed below.
+
 ## What I intentionally left out
 
 - Organizer roles and permissions

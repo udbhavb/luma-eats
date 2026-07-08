@@ -71,6 +71,11 @@ CREATE TABLE IF NOT EXISTS votes (
 try { db.exec(`ALTER TABLE time_options ADD COLUMN created_at INTEGER`); } catch { /* already there */ }
 db.prepare(`UPDATE time_options SET created_at = ? WHERE created_at IS NULL`).run(Date.now());
 
+// decision telemetry: when each lock happened and how ('pick'|'sweep'|'concierge')
+for (const col of ["time_final_at INTEGER", "place_final_at INTEGER", "time_final_source TEXT", "place_final_source TEXT"]) {
+  try { db.exec(`ALTER TABLE sessions ADD COLUMN ${col}`); } catch { /* already there */ }
+}
+
 export const newId = (len = 8) => crypto.randomBytes(len).toString("base64url").slice(0, len);
 
 /* ---------- queries ---------- */

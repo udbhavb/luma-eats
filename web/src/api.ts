@@ -26,8 +26,8 @@ export const api = {
   searchPlaces: (id: string) => req<{ results: import("./types").Candidate[]; cuisines: string[]; provider: string }>(
     `/api/sessions/${id}/search-places`, {}),
   addToBallot: (id: string, place: object, by: string) => req(`/api/sessions/${id}/ballot`, { place, by }),
-  finalize: (id: string, kind: "time" | "place", optionId: string | null) =>
-    req(`/api/sessions/${id}/finalize`, { kind, optionId }),
+  finalize: (id: string, kind: "time" | "place", optionId: string | null, source?: "concierge") =>
+    req(`/api/sessions/${id}/finalize`, { kind, optionId, source }),
   setDeadline: (id: string, iso: string | null) => req(`/api/sessions/${id}/deadline`, { iso }),
   postMessage: (id: string, text: string, by: string) => req(`/api/sessions/${id}/messages`, { text, by }),
   concierge: (id: string) => req<import("./types").Recommendation>(`/api/sessions/${id}/concierge`, {})

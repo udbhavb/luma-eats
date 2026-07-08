@@ -447,7 +447,7 @@ export function VoteTab({ s, me, config }: TabProps & { config: AppConfig }) {
               <p style={{ margin: "6px 0" }}>{rec.reasoning}</p>
               <div className="row">
                 {pickUnlocked ? (
-                  <button onClick={() => { run(api.finalize(s.id, "place", rec.placeId)); setRec(null); }}>
+                  <button onClick={() => { run(api.finalize(s.id, "place", rec.placeId, "concierge")); setRec(null); }}>
                     Go with it 🎉
                   </button>
                 ) : (

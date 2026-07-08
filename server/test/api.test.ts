@@ -151,6 +151,35 @@ test("unknown session → 404; bad vote kind → 400", async () => {
   assert.equal(r.status, 400);
 });
 
+test("decision telemetry: locks record source; /api/stats aggregates", async () => {
+  const { body: { id } } = await post("/api/sessions", { name: "t" });
+  await post(`/api/sessions/${id}/time-options`, { iso: "2020-01-01T12:00", by: "Ada" });
+  const s = await get(`/api/sessions/${id}`);
+  await post(`/api/sessions/${id}/finalize`, { kind: "time", optionId: s.timeOptions[0].id }); // human pick
+  await post(`/api/sessions/${id}/ballot`, { place: { name: "Spot", source: "manual" }, by: "Ada" });
+  const s2 = await get(`/api/sessions/${id}`);
+  await post(`/api/sessions/${id}/finalize`, { kind: "place", optionId: s2.places[0].id, source: "concierge" });
+
+  const stats = await get("/api/stats");
+  assert.ok(stats.sessionsCreated >= 1);
+  assert.ok(stats.plansCompleted >= 1);
+  assert.ok(stats.timeLockSource.pick >= 1, "human time pick counted");
+  assert.ok(stats.placeLockSource.concierge >= 1, "concierge-accepted place counted");
+  assert.equal(typeof stats.medianMsToPlan, "number");
+  assert.ok(stats.completionRate > 0 && stats.completionRate <= 1);
+});
+
+test("undo clears telemetry so completion stats stay honest", async () => {
+  const { body: { id } } = await post("/api/sessions", { name: "t" });
+  await post(`/api/sessions/${id}/time-options`, { iso: "2020-01-01T12:00", by: "Ada" });
+  const s = await get(`/api/sessions/${id}`);
+  await post(`/api/sessions/${id}/finalize`, { kind: "time", optionId: s.timeOptions[0].id });
+  const before = (await get("/api/stats")).timeLockSource.pick ?? 0;
+  await post(`/api/sessions/${id}/finalize`, { kind: "time", optionId: null }); // undo
+  const after = (await get("/api/stats")).timeLockSource.pick ?? 0;
+  assert.equal(after, before - 1);
+});
+
 test("concierge without a key → clean error, not a crash", async () => {
   const { body: { id } } = await post("/api/sessions", { name: "t" });
   const r = await post(`/api/sessions/${id}/concierge`, {});
