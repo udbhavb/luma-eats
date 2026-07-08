@@ -204,7 +204,19 @@ app.post("/api/sessions/:id/deadline", asyncH(async (req, res) => {
 
 app.post("/api/sessions/:id/concierge", asyncH(async (req, res) => {
   const state = requireSession(req);
-  res.json(await recommend(state));
+  const rec = await recommend(state);
+  // reflect the pick into chat so the whole group sees it, not just whoever asked
+  const place = state.places.find(p => p.id === rec.placeId);
+  if (place) {
+    const text = `🤖 My pick: ${place.name}. ${rec.reasoning}`.slice(0, 280);
+    const dup = state.messages.some(m => m.author === "Luma" && m.text === text);
+    if (!dup) {
+      db.prepare(`INSERT INTO messages (id, session_id, author, text, created_at) VALUES (?, ?, ?, ?, ?)`)
+        .run(newId(), req.params.id, "Luma", text, Date.now());
+      broadcast(req.params.id);
+    }
+  }
+  res.json(rec);
 }));
 
 /* ---------------- deadline auto-finalize ----------------
