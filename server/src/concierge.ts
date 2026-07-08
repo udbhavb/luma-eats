@@ -16,6 +16,20 @@ export interface Recommendation {
   runnerUpId: string | null;
 }
 
+/** Best-effort JSON extraction: exact parse, then greedy {...}, then lazy. */
+function tryParseJson(text: string): any | null {
+  const candidates = [
+    text.trim(),
+    text.match(/\{[\s\S]*\}/)?.[0],
+    text.match(/\{[\s\S]*?\}/)?.[0]
+  ];
+  for (const c of candidates) {
+    if (!c) continue;
+    try { return JSON.parse(c); } catch { /* next */ }
+  }
+  return null;
+}
+
 export async function recommend(state: SessionState): Promise<Recommendation> {
   if (!aiEnabled) throw new Error("ANTHROPIC_API_KEY not configured");
   if (state.places.length < 2) throw new Error("Need at least 2 places on the ballot");
@@ -45,7 +59,7 @@ export async function recommend(state: SessionState): Promise<Recommendation> {
     },
     body: JSON.stringify({
       model: MODEL,
-      max_tokens: 400,
+      max_tokens: 600,
       system:
         "You are Luma, a warm and decisive food concierge helping a group break a deadlock on where to eat. " +
         "Weigh: vote counts, how many DIFFERENT people are satisfied (breadth beats depth), ratings and review counts, " +
@@ -54,16 +68,27 @@ export async function recommend(state: SessionState): Promise<Recommendation> {
         "your pick, cite the person by name (e.g. \"Priya's veg-friendly ask\"). Be decisive — pick exactly one. " +
         "Keep reasoning to 2-3 sentences, friendly and concrete (mention who gets what they wanted). " +
         'Respond with ONLY a JSON object: {"placeId": "...", "reasoning": "...", "runnerUpId": "..." | null}',
-      messages: [{ role: "user", content: JSON.stringify(summary) }]
+      messages: [
+        { role: "user", content: JSON.stringify(summary) },
+        // prefill: the reply *continues* from "{", so it can't open with prose
+        { role: "assistant", content: "{" }
+      ]
     })
   });
   if (!r.ok) throw new Error(`Anthropic API error ${r.status}: ${(await r.text()).slice(0, 200)}`);
 
   const j: any = await r.json();
-  const text: string = j.content?.[0]?.text ?? "";
-  const match = text.match(/\{[\s\S]*\}/);
-  if (!match) throw new Error("Concierge gave an unparseable answer");
-  const parsed = JSON.parse(match[0]);
+  // join ALL text blocks — some models emit more than one
+  const text = "{" + (j.content ?? [])
+    .filter((b: any) => b.type === "text")
+    .map((b: any) => b.text)
+    .join("");
+  const parsed = tryParseJson(text);
+  if (!parsed) {
+    console.warn("concierge unparseable, raw content:", JSON.stringify(j.content).slice(0, 500),
+      "stop_reason:", j.stop_reason);
+    throw new Error("The concierge rambled instead of answering — try again");
+  }
   if (!state.places.some(p => p.id === parsed.placeId)) {
     throw new Error("Concierge picked an unknown place");
   }
