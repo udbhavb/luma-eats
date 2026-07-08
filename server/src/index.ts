@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { WebSocketServer, WebSocket } from "ws";
 import { db, newId, getState, createSession, toggleVote } from "./db.js";
 import { geocode, searchPlaces, placesProvider } from "./places.js";
+import { pickLeader, placePickUnlocked, suggestDue } from "./logic.js";
 import { recommend, aiEnabled } from "./concierge.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -149,18 +150,6 @@ app.post("/api/sessions/:id/ballot", asyncH(async (req, res) => {
   res.json({ id });
 }));
 
-/** Plans need a *when* before a *where*: a place can only be locked once a
- * time is locked, and only after the decision deadline or the meal time
- * passes — early "Pick"s would short-circuit the vote. Undo always allowed. */
-function placePickUnlocked(state: NonNullable<ReturnType<typeof getState>>) {
-  if (!state.timeFinal) return false;
-  const gates = [
-    state.decideBy,
-    state.timeOptions.find(o => o.id === state.timeFinal)?.iso
-  ].filter((x): x is string => !!x).map(x => Date.parse(x)).filter(t => !isNaN(t));
-  return gates.some(t => Date.now() >= t);
-}
-
 app.post("/api/sessions/:id/finalize", asyncH(async (req, res) => {
   const state = requireSession(req);
   const { kind, optionId } = req.body; // optionId null = undo
@@ -226,30 +215,6 @@ app.post("/api/sessions/:id/concierge", asyncH(async (req, res) => {
  * earliest suggestion, places to the higher rating — deterministic, so every
  * client agrees.
  */
-
-function pickLeader(opts: { id: string; votes: string[] }[], tiebreak?: (a: any, b: any) => number) {
-  const max = Math.max(0, ...opts.map(o => o.votes.length));
-  if (max === 0) return null; // never auto-pick something nobody voted for
-  const leaders = opts.filter(o => o.votes.length === max);
-  if (tiebreak) leaders.sort(tiebreak);
-  // no tiebreak given → tied leaders are equally good, pick one at random
-  return (tiebreak ? leaders[0] : leaders[Math.floor(Math.random() * leaders.length)]).id;
-}
-
-/** When should Luma step in and suggest places for an empty ballot?
- *  - at the decision deadline, and/or
- *  - 1h before the locked meal time — but never sooner than 1h after that
- *    winning time was proposed (a meal locked on short notice still gives
- *    the group their hour). Both configured → whichever comes first. */
-function suggestDue(state: NonNullable<ReturnType<typeof getState>>): boolean {
-  const triggers: number[] = [];
-  if (state.decideBy && !isNaN(Date.parse(state.decideBy))) triggers.push(Date.parse(state.decideBy));
-  const meal: any = state.timeOptions.find(o => o.id === state.timeFinal);
-  if (meal && !isNaN(Date.parse(meal.iso))) {
-    triggers.push(Math.max(Date.parse(meal.iso) - 3600_000, (meal.createdAt ?? 0) + 3600_000));
-  }
-  return triggers.length > 0 && Math.min(...triggers) <= Date.now();
-}
 
 const lastSuggestAttempt = new Map<string, number>(); // per-session backoff for failed searches
 
