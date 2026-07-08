@@ -67,23 +67,32 @@ export async function recommend(state: SessionState): Promise<Recommendation> {
         "availability, strong feelings — treat a stated constraint as outweighing a vote count, and when chat sways " +
         "your pick, cite the person by name (e.g. \"Priya's veg-friendly ask\"). Be decisive — pick exactly one. " +
         "Keep reasoning to 2-3 sentences, friendly and concrete (mention who gets what they wanted). " +
-        'Respond with ONLY a JSON object: {"placeId": "...", "reasoning": "...", "runnerUpId": "..." | null}',
-      messages: [
-        { role: "user", content: JSON.stringify(summary) },
-        // prefill: the reply *continues* from "{", so it can't open with prose
-        { role: "assistant", content: "{" }
-      ]
+        "Deliver your answer by calling the recommend_place tool.",
+      // forced tool use = structured output without text parsing; works across
+      // models (assistant prefill doesn't on the newest ones)
+      tools: [{
+        name: "recommend_place",
+        description: "Deliver the final restaurant recommendation for the group",
+        input_schema: {
+          type: "object",
+          properties: {
+            placeId: { type: "string", description: "id of the chosen place from the ballot" },
+            reasoning: { type: "string", description: "2-3 friendly, concrete sentences" },
+            runnerUpId: { type: "string", description: "id of the second-best ballot place, if any" }
+          },
+          required: ["placeId", "reasoning"]
+        }
+      }],
+      tool_choice: { type: "tool", name: "recommend_place" },
+      messages: [{ role: "user", content: JSON.stringify(summary) }]
     })
   });
   if (!r.ok) throw new Error(`Anthropic API error ${r.status}: ${(await r.text()).slice(0, 200)}`);
 
   const j: any = await r.json();
-  // join ALL text blocks — some models emit more than one
-  const text = "{" + (j.content ?? [])
-    .filter((b: any) => b.type === "text")
-    .map((b: any) => b.text)
-    .join("");
-  const parsed = tryParseJson(text);
+  const parsed = (j.content ?? []).find((b: any) => b.type === "tool_use")?.input
+    // fallback: some setups still answer in text — salvage JSON if present
+    ?? tryParseJson((j.content ?? []).filter((b: any) => b.type === "text").map((b: any) => b.text).join(""));
   if (!parsed) {
     console.warn("concierge unparseable, raw content:", JSON.stringify(j.content).slice(0, 500),
       "stop_reason:", j.stop_reason);
